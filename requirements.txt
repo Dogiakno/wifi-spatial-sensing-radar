@@ -1,0 +1,2 @@
+pyobjc-framework-CoreWLAN>=10.0; sys_platform == "darwin"
+pyserial>=3.5

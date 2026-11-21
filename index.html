@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Wi-Fi RF Spatial Sensing Radar</title>
+  <style>
+    :root {
+      --bg: #030712;
+      --card: #0f172a;
+      --border: #1e293b;
+      --cyan: #38bdf8;
+      --green: #10b981;
+      --amber: #f59e0b;
+      --red: #ef4444;
+      --text: #f8fafc;
+      --muted: #64748b;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    body { background: var(--bg); color: var(--text); padding: 20px; display: flex; justify-content: center; }
+    .container { width: 100%; max-width: 1000px; display: flex; flex-direction: column; gap: 16px; }
+    .panel { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+    .header { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; border-bottom: 1px solid var(--border); padding-bottom: 12px; }
+    .badges { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .badge { font-size: 0.75rem; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border); background: #020617; color: var(--muted); }
+    .badge-demo { border-color: var(--amber); color: var(--amber); background: rgba(245, 158, 11, 0.12); display: none; }
+
+    .zone-box {
+      margin: 15px 0;
+      padding: 16px;
+      border-radius: 8px;
+      text-align: center;
+      font-size: 1.1rem;
+      font-weight: bold;
+      letter-spacing: 0.04em;
+      border: 1px solid var(--border);
+      background: #020617;
+      color: var(--green);
+      transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    }
+    .zone-alert { background: rgba(239, 68, 68, 0.2); color: var(--red); border-color: var(--red); }
+
+    .map-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; min-height: 140px; margin-bottom: 15px; }
+    .sensor-node {
+      border: 1px dashed var(--border);
+      border-radius: 8px;
+      padding: 15px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 12px;
+      transition: background 0.15s ease, border-color 0.15s ease;
+    }
+    .node-active { border-color: var(--red); background: rgba(239, 68, 68, 0.08); }
+    .node-title { font-weight: bold; font-size: 0.9rem; }
+    .node-status { font-size: 0.75rem; color: var(--muted); margin-top: 4px; }
+    .node-metrics { display: flex; justify-content: space-between; align-items: baseline; }
+    .node-score { font-size: 1.45rem; font-weight: bold; }
+    .node-rssi { font-size: 0.8rem; color: var(--cyan); }
+
+    .wave-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+    canvas { width: 100%; height: 160px; background: #020617; border-radius: 8px; border: 1px solid var(--border); display: block; }
+
+    @media (max-width: 720px) {
+      .map-grid, .wave-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="panel">
+      <div class="header">
+        <div>
+          <h2>WI-FI DUAL-NODE RF SPATIAL SENSING</h2>
+          <small style="color: var(--muted);">macOS CoreWLAN + Flipper Zero / ESP32-S3 Bridge</small>
+        </div>
+        <div class="badges">
+          <div id="demoBadge" class="badge badge-demo">DEMO SIMULATION</div>
+          <div id="flipperStatusBadge" class="badge">FLIPPER: WAITING...</div>
+        </div>
+      </div>
+
+      <div id="zoneDisplay" class="zone-box">ENVIRONMENT CALM (IDLE)</div>
+
+      <div class="map-grid">
+        <div id="nodeMac" class="sensor-node">
+          <div>
+            <div class="node-title">ZONE A: MACBOOK HOST</div>
+            <div class="node-status" id="macStatusLabel">CoreWLAN Live RSSI Polling (80 ms)</div>
+          </div>
+          <div class="node-metrics">
+            <div class="node-score" id="macScore">0.00</div>
+            <div class="node-rssi" id="macRssi">-- dBm</div>
+          </div>
+        </div>
+
+        <div id="nodeFlipper" class="sensor-node">
+          <div>
+            <div class="node-title">ZONE B: FLIPPER ZERO (ESP32-S3)</div>
+            <div class="node-status" id="flipperPortLabel">Auto-detects when USB-CDC bridge is connected</div>
+          </div>
+          <div class="node-metrics">
+            <div class="node-score" id="flipperScore">0.00</div>
+            <div class="node-rssi" id="flipperRssi">-- dBm</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="wave-grid">
+        <div>
+          <small style="color: var(--muted); display: block; margin-bottom: 6px;">ZONE A — MAC RSSI WAVEFORM</small>
+          <canvas id="canvasMac" width="450" height="160"></canvas>
+        </div>
+        <div>
+          <small style="color: var(--muted); display: block; margin-bottom: 6px;">ZONE B — FLIPPER / ESP32 WAVEFORM</small>
+          <canvas id="canvasFlipper" width="450" height="160"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const zoneDisplay = document.getElementById('zoneDisplay');
+    const demoBadge = document.getElementById('demoBadge');
+    const flipperStatusBadge = document.getElementById('flipperStatusBadge');
+    const nodeMac = document.getElementById('nodeMac');
+    const nodeFlipper = document.getElementById('nodeFlipper');
+    const macScore = document.getElementById('macScore');
+    const macRssi = document.getElementById('macRssi');
+    const macStatusLabel = document.getElementById('macStatusLabel');
+    const flipperScore = document.getElementById('flipperScore');
+    const flipperRssi = document.getElementById('flipperRssi');
+    const flipperPortLabel = document.getElementById('flipperPortLabel');
+
+    const ctxMac = document.getElementById('canvasMac').getContext('2d');
+    const ctxFlipper = document.getElementById('canvasFlipper').getContext('2d');
+
+    const evt = new EventSource('/api/stream');
+    evt.onmessage = (e) => {
+      const data = JSON.parse(e.data);
+
+      demoBadge.style.display = data.demo_mode ? 'inline-block' : 'none';
+      macScore.innerText = data.mac_score.toFixed(2);
+      flipperScore.innerText = data.flipper_score.toFixed(2);
+      macRssi.innerText = data.mac_rssi !== null ? `${data.mac_rssi.toFixed(1)} dBm` : '-- dBm';
+      flipperRssi.innerText = data.flipper_rssi !== null ? `${data.flipper_rssi.toFixed(1)} dBm` : '-- dBm';
+
+      const isIdle = data.zone === 'IDLE';
+      zoneDisplay.innerText = isIdle ? 'ENVIRONMENT CALM (IDLE)' : `MOTION DETECTED — ${data.zone}`;
+      zoneDisplay.className = isIdle ? 'zone-box' : 'zone-box zone-alert';
+
+      nodeMac.className = data.mac_motion ? 'sensor-node node-active' : 'sensor-node';
+      nodeFlipper.className = data.flipper_motion ? 'sensor-node node-active' : 'sensor-node';
+
+      if (data.demo_mode) {
+        macStatusLabel.innerText = 'Simulated CoreWLAN RF perturbation stream';
+      } else {
+        macStatusLabel.innerText = data.mac_connected
+          ? 'CoreWLAN Live RSSI Polling (80 ms)'
+          : 'CoreWLAN unavailable (try --demo mode)';
+      }
+
+      if (data.flipper_connected) {
+        flipperStatusBadge.innerText = data.demo_mode ? 'FLIPPER: SIMULATED' : 'FLIPPER: CONNECTED (LIVE)';
+        flipperStatusBadge.style.color = 'var(--green)';
+        flipperStatusBadge.style.borderColor = 'var(--green)';
+        flipperPortLabel.innerText = data.flipper_port
+          ? `Serial active: ${data.flipper_port}`
+          : 'Serial port active';
+      } else {
+        flipperStatusBadge.innerText = 'FLIPPER: WAITING';
+        flipperStatusBadge.style.color = 'var(--muted)';
+        flipperStatusBadge.style.borderColor = 'var(--border)';
+        flipperPortLabel.innerText = 'Auto-detects when USB-CDC bridge is connected';
+      }
+
+      // Render RSSI waveforms (-90 dBm to -30 dBm)
+      drawWave(ctxMac, data.mac_history, data.mac_motion, -90, -30);
+      drawWave(ctxFlipper, data.flipper_history, data.flipper_motion, -90, -30);
+    };
+
+    function drawWave(ctx, hist, isMotion, minV, maxV) {
+      const w = ctx.canvas.width;
+      const h = ctx.canvas.height;
+      ctx.clearRect(0, 0, w, h);
+
+      // Grid lines
+      ctx.strokeStyle = '#1e293b';
+      ctx.lineWidth = 1;
+      for (let y = 20; y < h; y += 30) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y);
+        ctx.stroke();
+      }
+
+      if (!hist || hist.length < 2) return;
+
+      ctx.beginPath();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = isMotion ? '#ef4444' : '#10b981';
+
+      const step = w / 59;
+      hist.forEach((v, i) => {
+        const norm = Math.max(0, Math.min(1, (v - minV) / (maxV - minV)));
+        const y = h - (norm * (h - 20) + 10);
+        const x = i * step;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+App(
+    appid="wifi_radar_bridge",
+    name="WiFi Radar Bridge",
+    apptype=FlipperAppType.EXTERNAL,
+    entry_point="wifi_radar_bridge_app",
+    stack_size=2 * 1024,
+    fap_category="GPIO",
+)
